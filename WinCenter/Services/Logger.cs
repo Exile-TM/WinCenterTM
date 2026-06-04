@@ -1,16 +1,13 @@
 ﻿using System;
 using System.IO;
+using WinCenter.Features;
 
 namespace WinCenter.Services
 {
     public static class Logger
     {
         // 🔹 percorso file log
-        private static string logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "WinCenter",
-            "log.txt"
-        );
+        private static string logPath = AppDataService.GetPath("log.txt");
 
         // 🔹 scrive messaggio nel log
         public static void Log(string message)

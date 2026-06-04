@@ -25,8 +25,10 @@
     <UpdatePeriodically>false</UpdatePeriodically>
     <UpdateRequired>false</UpdateRequired>
     <MapFileExtensions>true</MapFileExtensions>
+    <SuiteName>WinCenter™</SuiteName>
+    <OpenBrowserOnPublish>false</OpenBrowserOnPublish>
     <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>1.2.0.0</ApplicationVersion>
+    <ApplicationVersion>2.0.0.0</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <PublishWizardCompleted>true</PublishWizardCompleted>
     <BootstrapperEnabled>true</BootstrapperEnabled>
@@ -121,6 +123,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Features\AppDataService.cs" />
     <Compile Include="Features\ProManager.cs" />
     <Compile Include="Features\SettingsService.cs" />
     <Compile Include="Form1.cs">
@@ -136,6 +139,7 @@
     <Compile Include="Services\FirewallService.cs" />
     <Compile Include="Services\Logger.cs" />
     <Compile Include="Services\SystemRepairService.cs" />
+    <Compile Include="Services\SystemTweaksService.cs" />
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
     </EmbeddedResource>

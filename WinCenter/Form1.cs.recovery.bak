@@ -1,22 +1,15 @@
-using Microsoft.Web.WebView2.Core;
+﻿using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
-using System.Text.Json;
-using System.Threading;
 using System.Management;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml.Linq;
-using WinCenter.Features;
 using WinCenter.Services; // richiama la cartella Services
 
 namespace WinCenter
@@ -24,11 +17,22 @@ namespace WinCenter
     public partial class Form1 : Form
     {
         // Versione Pro attiva
-        string pathPro = AppDataService.GetPath("pro.key");
+        string pathPro = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WinCenter",
+            "pro.key"
+        );
         // 🔹 file accettazione Terms
-        string pathTerms = AppDataService.GetPath("terms.accepted");
-        string pathSettings = AppDataService.GetPath("settings.json");
-        string pathCenterGamesScores = AppDataService.GetPath("center-games-scores.json");
+        string pathTerms = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WinCenter",
+            "terms.accepted"
+        );
+        string pathSettings = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WinCenter",
+            "settings.json"
+        );
 
         // 🔹 servizi globali
         FirewallService firewallService = new FirewallService();
@@ -36,102 +40,16 @@ namespace WinCenter
         DriverService driverService = new DriverService();
         SystemRepairService repairService = new SystemRepairService();
         SystemTweaksService tweaksService = new SystemTweaksService();
-        WinCenter.Features.ProManager proManager;
+        WinCenter.Features.ProManager proManager = new WinCenter.Features.ProManager();
         WinCenter.Features.SettingsService settingsService;
-        private const int PhoneBridgePort = 47822;
-        private TcpListener phoneBridgeListener;
-        private CancellationTokenSource phoneBridgeCancel;
-        private string phonePairToken;
         private readonly Color splashTransparencyColor = Color.Magenta;
         private readonly Color splashFallbackColor = Color.FromArgb(0, 64, 80);
         private bool splashModeActive;
         private bool splashTrasparenteSupportato;
 
-        private Dictionary<string, int> CaricaRecordCenterGames()
-        {
-            try
-            {
-                if (!File.Exists(pathCenterGamesScores))
-                    return new Dictionary<string, int>();
-
-                string json = File.ReadAllText(pathCenterGamesScores, Encoding.UTF8);
-                return JsonSerializer.Deserialize<Dictionary<string, int>>(json) ?? new Dictionary<string, int>();
-            }
-            catch
-            {
-                return new Dictionary<string, int>();
-            }
-        }
-
-        private int LeggiRecordCenterGame(string game)
-        {
-            var scores = CaricaRecordCenterGames();
-            return scores.TryGetValue(game, out int value) ? value : 0;
-        }
-
-        private void SalvaRecordCenterGame(string game, int value)
-        {
-            if (value < 0)
-                value = 0;
-
-            Directory.CreateDirectory(Path.GetDirectoryName(pathCenterGamesScores));
-
-            var scores = CaricaRecordCenterGames();
-            if (scores.TryGetValue(game, out int current) && current >= value)
-                return;
-
-            scores[game] = value;
-            string json = JsonSerializer.Serialize(scores);
-            File.WriteAllText(pathCenterGamesScores, json, Encoding.UTF8);
-        }
-
-        private void AzzeraRecordCenterGame(string game)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(pathCenterGamesScores));
-
-            var scores = CaricaRecordCenterGames();
-            scores[game] = 0;
-            string json = JsonSerializer.Serialize(scores);
-            File.WriteAllText(pathCenterGamesScores, json, Encoding.UTF8);
-        }
-
-        private void AssicuraFileRecordCenterGames()
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(pathCenterGamesScores));
-
-            if (!File.Exists(pathCenterGamesScores))
-                File.WriteAllText(pathCenterGamesScores, "{}", Encoding.UTF8);
-        }
-
-        private async Task InizializzaWebViewSecondariaAsync(WebView2 web, string cacheName)
-        {
-            string userDataFolder = AppDataService.GetPath(Path.Combine("WebViewCache", cacheName));
-            Directory.CreateDirectory(userDataFolder);
-
-            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
-            await web.EnsureCoreWebView2Async(env);
-        }
-
-        private async Task SincronizzaRecordCenterGamesAsync()
-        {
-            var scores = CaricaRecordCenterGames();
-            string json = JsonSerializer.Serialize(scores);
-            string script = "if (window.setCenterGameScores) window.setCenterGameScores(" + json + ");";
-
-            try
-            {
-                await webView21.CoreWebView2.ExecuteScriptAsync(script);
-            }
-            catch
-            {
-            }
-        }
-
         public Form1()
         {
             InitializeComponent();
-            AppDataService.EnsureBaseFolder();
-            proManager = new WinCenter.Features.ProManager(pathPro);
             settingsService = new WinCenter.Features.SettingsService(pathSettings);
             webView21.CoreWebView2InitializationCompleted += WebView_CoreWebView2InitializationCompleted;
             this.Text = "WinCenter™ Online Edition v2.0 - Informatica Spiegata Male";
@@ -144,7 +62,6 @@ namespace WinCenter
             this.ClientSize = new Size(650, 335);
             this.StartPosition = FormStartPosition.CenterScreen;
             AttivaModalitaSplash();
-            AvviaBridgeTelefono();
         }
 
         // Mostra soltanto il riquadro animato iniziale, senza la cornice della finestra.
@@ -219,20 +136,6 @@ namespace WinCenter
         private async void CoreWebView2_WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             string msg = e.TryGetWebMessageAsString();
-
-            if (msg == "center_games_scores_get")
-            {
-                await SincronizzaRecordCenterGamesAsync();
-                return;
-            }
-
-            // ===== ACCOPPIAMENTO TELEFONO =====
-            if (msg == "phone_pair_get")
-            {
-                string json = JsonSerializer.Serialize(CreaInfoAccoppiamentoTelefono());
-                await EseguiScriptTelefono("if(window.setPhonePairingInfo){ setPhonePairingInfo(" + json + "); }");
-                return;
-            }
             // ===== DISPOSIZIONE TILES =====
             if (msg == "tile_layout_get")
             {
@@ -367,7 +270,10 @@ namespace WinCenter
 
                 if (avatar == "custom")
                 {
-                    string appData = AppDataService.BasePath;
+                    string appData = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "WinCenter"
+                    );
 
                     string avatarPath = Path.Combine(appData, "profile-avatar.png");
 
@@ -442,7 +348,10 @@ namespace WinCenter
 
                     byte[] imageBytes = Convert.FromBase64String(base64);
 
-                    string appData = AppDataService.BasePath;
+                    string appData = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "WinCenter"
+                    );
 
                     Directory.CreateDirectory(appData);
 
@@ -557,7 +466,6 @@ namespace WinCenter
                     );
 
                     AttivaModalitaSplash();
-            AvviaBridgeTelefono();
                     webView21.Source = new Uri(Path.Combine(Application.StartupPath, "Avvio", "index.html"));
                 }
                 catch (Exception ex)
@@ -793,135 +701,6 @@ namespace WinCenter
             }
 
             // 🔹 Apri lettore musicale
-            if (msg.StartsWith("apri_center_game:", StringComparison.OrdinalIgnoreCase))
-            {
-                string game = msg.Substring("apri_center_game:".Length);
-                string[] giochiConsentiti = { "snake", "tris", "memory", "guess", "mines" };
-
-                if (!giochiConsentiti.Contains(game))
-                    game = "snake";
-
-                Form gameForm = new Form();
-                gameForm.Icon = new Icon(Path.Combine(
-                    Application.StartupPath,
-                    "Contenuti", "Immagini", "Icone", "WinCenter.ico"
-                ));
-                gameForm.Text = "WinCenter™ - Center Games";
-                gameForm.ClientSize = new Size(760, 560);
-                gameForm.MinimumSize = game == "mines" ? new Size(640, 460) : new Size(760, 560);
-                gameForm.FormBorderStyle = game == "mines" ? FormBorderStyle.Sizable : FormBorderStyle.FixedSingle;
-                gameForm.MaximizeBox = game == "mines";
-                gameForm.MinimizeBox = false;
-                gameForm.StartPosition = FormStartPosition.CenterScreen;
-
-                WebView2 web = new WebView2();
-                web.Dock = DockStyle.Fill;
-                gameForm.Controls.Add(web);
-
-                gameForm.Show(this);
-
-                await InizializzaWebViewSecondariaAsync(web, "CenterGames");
-                web.CoreWebView2.Settings.IsBuiltInErrorPageEnabled = false;
-                web.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                web.CoreWebView2.WebMessageReceived += async (s, ev) =>
-                {
-                    string childMsg = ev.TryGetWebMessageAsString();
-                    if (childMsg == "chiudi_gioco")
-                    {
-                        gameForm.Close();
-                        return;
-                    }
-
-                    if (childMsg.StartsWith("center_game_best:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string[] parts = childMsg.Split(':');
-
-                        if (parts.Length == 3 && giochiConsentiti.Contains(parts[1]) && int.TryParse(parts[2], out int bestValue))
-                        {
-                            SalvaRecordCenterGame(parts[1], bestValue);
-
-                            string key = "wincenter_center_games_best_" + parts[1];
-                            string script =
-                                "localStorage.setItem('" + key + "', '" + bestValue + "');" +
-                                "if (window.cgRefreshBests) window.cgRefreshBests();";
-
-                            try
-                            {
-                                await webView21.CoreWebView2.ExecuteScriptAsync(script);
-                            }
-                            catch
-                            {
-                            }
-                        }
-                    }
-
-                    if (childMsg.StartsWith("center_game_reset_best:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string gameToReset = childMsg.Substring("center_game_reset_best:".Length);
-
-                        if (giochiConsentiti.Contains(gameToReset))
-                        {
-                            AzzeraRecordCenterGame(gameToReset);
-
-                            string key = "wincenter_center_games_best_" + gameToReset;
-                            string script =
-                                "localStorage.setItem('" + key + "', '0');" +
-                                "if (window.cgRefreshBests) window.cgRefreshBests();";
-
-                            try
-                            {
-                                await webView21.CoreWebView2.ExecuteScriptAsync(script);
-                            }
-                            catch
-                            {
-                            }
-                        }
-                    }
-                };
-
-                string lang = "it";
-
-                try
-                {
-                    var result = await webView21.CoreWebView2.ExecuteScriptAsync("localStorage.getItem('lang')");
-                    lang = result.Replace("\"", "");
-
-                    if (string.IsNullOrEmpty(lang) || lang == "null")
-                        lang = "it";
-                }
-                catch
-                {
-                    lang = "it";
-                }
-
-                string currentBest = LeggiRecordCenterGame(game).ToString();
-                AssicuraFileRecordCenterGames();
-
-                string filePath = Path.Combine(
-                    Application.StartupPath,
-                    "Contenuti", "HTML", "RapidMenu", "centergame-player.html"
-                );
-
-                var uri = new UriBuilder(new Uri(filePath));
-                uri.Query =
-                    "game=" + Uri.EscapeDataString(game) +
-                    "&lang=" + Uri.EscapeDataString(lang) +
-                    "&best=" + Uri.EscapeDataString(currentBest);
-
-                web.Source = uri.Uri;
-
-                web.CoreWebView2.NavigationCompleted += async (s, ev) =>
-                {
-                    var title = await web.ExecuteScriptAsync("document.title");
-                    title = title.Replace("\"", "");
-
-                    if (!string.IsNullOrWhiteSpace(title))
-                        gameForm.Text = title;
-                };
-
-                return;
-            }
-
             if (msg == "apri_lettore")
             {
                 Form player = new Form();
@@ -942,7 +721,7 @@ namespace WinCenter
 
                 player.Show();
 
-                await InizializzaWebViewSecondariaAsync(web, "MediaPlayer");
+                await web.EnsureCoreWebView2Async();
 
                 // 🔹 Recupera lingua
                 string lang = "it";
@@ -1006,7 +785,7 @@ namespace WinCenter
 
                 info.Show();
 
-                await InizializzaWebViewSecondariaAsync(web, "Info");
+                await web.EnsureCoreWebView2Async();
 
                 // 🔹 Recupera lingua
                 string lang = "it";
@@ -1265,27 +1044,20 @@ setTimeout(function(){
             }
         }
 
-        private string TestoAvvio(string italiano, string inglese)
-        {
-            return CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "it"
-                ? italiano
-                : inglese;
-        }
-
         private async void Form1_Load(object sender, EventArgs e)
         {
             Version v = Environment.OSVersion.Version;
             if (v.Major < 6 || (v.Major == 6 && v.Minor == 0))
             {
-                MessageBox.Show(
-                    TestoAvvio("Richiede almeno Windows 7 SP1", "Requires Windows 7 SP1 or later"),
-                    TestoAvvio("Errore", "Error")
-                );
+                MessageBox.Show("Richiede almeno Windows 7 SP1", "Errore");
                 Application.Exit();
                 return;
             }
 
-            string userDataFolder = AppDataService.WebViewCachePath;
+            string userDataFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WinCenter", "WebViewCache"
+            );
 
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
             await webView21.EnsureCoreWebView2Async(env);
@@ -1374,6 +1146,8 @@ setTimeout(function(){
                 }
 
                 // 🔹 uso ProManager
+                var proManager = new WinCenter.Features.ProManager();
+
                 // 🔹 controllo se Pro attiva
                 bool isPro = proManager.IsProActive();
 
@@ -1791,374 +1565,6 @@ setTimeout(function(){
             {
                 MessageBox.Show(key);
             }
-        }
-        private void AvviaBridgeTelefono()
-        {
-            phonePairToken = GeneraTokenTelefono();
-            phoneBridgeCancel = new CancellationTokenSource();
-
-            try
-            {
-                if (phoneBridgeListener != null)
-                    return;
-
-                phoneBridgeListener = new TcpListener(IPAddress.Any, PhoneBridgePort);
-                phoneBridgeListener.Start();
-                Task.Run(() => CicloBridgeTelefono(phoneBridgeCancel.Token));
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("Errore avvio bridge telefono", ex);
-            }
-        }
-
-        private async Task CicloBridgeTelefono(CancellationToken token)
-        {
-            while (!token.IsCancellationRequested && phoneBridgeListener != null)
-            {
-                try
-                {
-                    TcpClient client = await phoneBridgeListener.AcceptTcpClientAsync();
-                    _ = Task.Run(() => GestisciRichiestaTelefono(client));
-                }
-                catch
-                {
-                    if (!token.IsCancellationRequested)
-                        await Task.Delay(500);
-                }
-            }
-        }
-
-        private async Task GestisciRichiestaTelefono(TcpClient client)
-        {
-            using (client)
-            using (NetworkStream stream = client.GetStream())
-            using (StreamReader reader = new StreamReader(stream, Encoding.UTF8, false, 1024, true))
-            {
-                try
-                {
-                    string requestLine = await reader.ReadLineAsync();
-                    if (string.IsNullOrWhiteSpace(requestLine))
-                    {
-                        await RispondiTelefono(stream, 400, "{\"ok\":false}");
-                        return;
-                    }
-
-                    int contentLength = 0;
-                    string line;
-                    while (!string.IsNullOrEmpty(line = await reader.ReadLineAsync()))
-                    {
-                        if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
-                            int.TryParse(line.Substring("Content-Length:".Length).Trim(), out contentLength);
-                    }
-
-                    string[] parts = requestLine.Split(' ');
-                    string method = parts.Length > 0 ? parts[0] : "";
-                    Uri uri = new Uri("http://localhost" + (parts.Length > 1 ? parts[1] : "/"));
-
-                    if (method == "OPTIONS")
-                    {
-                        await RispondiTelefono(stream, 200, "{\"ok\":true}");
-                        return;
-                    }
-
-                    if (uri.AbsolutePath == "/pair-info")
-                    {
-                        string device = Query(uri, "device");
-                        int.TryParse(Query(uri, "battery"), out int battery);
-                        int.TryParse(Query(uri, "signal"), out int signal);
-
-                        await RispondiTelefono(stream, 200, JsonSerializer.Serialize(CreaInfoAccoppiamentoTelefono()));
-
-                        if (!string.IsNullOrWhiteSpace(device))
-                            _ = NotificaTelefonoConnesso(device, battery, signal, true);
-
-                        return;
-                    }
-
-                    if (uri.AbsolutePath == "/disconnect")
-                    {
-                        string disconnectToken = Query(uri, "token");
-                        if (disconnectToken == phonePairToken)
-                            _ = NotificaTelefonoScollegato();
-                        await RispondiTelefono(stream, 200, "{\"ok\":true}");
-                        return;
-                    }
-
-                    if (uri.AbsolutePath != "/apply")
-                    {
-                        await RispondiTelefono(stream, 404, "{\"ok\":false,\"error\":\"not_found\"}");
-                        return;
-                    }
-
-                    string token = Query(uri, "token");
-                    if (token != phonePairToken)
-                    {
-                        await RispondiTelefono(stream, 403, "{\"ok\":false,\"error\":\"bad_token\"}");
-                        return;
-                    }
-
-                    char[] bodyBuffer = new char[contentLength];
-                    int read = 0;
-                    while (read < contentLength)
-                    {
-                        int current = await reader.ReadAsync(bodyBuffer, read, contentLength - read);
-                        if (current <= 0) break;
-                        read += current;
-                    }
-
-                    string body = new string(bodyBuffer, 0, read);
-                    PhoneCommand command = JsonSerializer.Deserialize<PhoneCommand>(body, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    }) ?? new PhoneCommand();
-
-                    try
-                    {
-                        await ApplicaComandoTelefono(command);
-                        if (!string.IsNullOrWhiteSpace(command.deviceName))
-                            await NotificaTelefonoConnesso(command.deviceName, command.batteryLevel ?? -1, command.signalLevel ?? -1, false);
-                        await RispondiTelefono(stream, 200, "{\"ok\":true}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError("Errore applicazione comando telefono", ex);
-                        await RispondiTelefono(stream, 500, "{\"ok\":false,\"error\":\"apply_failed\"}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError("Errore richiesta bridge telefono", ex);
-                }
-            }
-        }
-
-        private async Task RispondiTelefono(NetworkStream stream, int status, string json)
-        {
-            string statusText = status == 200 ? "OK" : status == 400 ? "Bad Request" : status == 403 ? "Forbidden" : status == 500 ? "Internal Server Error" : "Not Found";
-            byte[] body = Encoding.UTF8.GetBytes(json ?? "{}");
-            string header =
-                "HTTP/1.1 " + status + " " + statusText + "\r\n" +
-                "Content-Type: application/json; charset=utf-8\r\n" +
-                "Access-Control-Allow-Origin: *\r\n" +
-                "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
-                "Access-Control-Allow-Headers: Content-Type\r\n" +
-                "Content-Length: " + body.Length + "\r\n" +
-                "Connection: close\r\n\r\n";
-            byte[] head = Encoding.ASCII.GetBytes(header);
-            await stream.WriteAsync(head, 0, head.Length);
-            await stream.WriteAsync(body, 0, body.Length);
-        }
-
-        private async Task ApplicaComandoTelefono(PhoneCommand command)
-        {
-            if (command == null)
-                return;
-
-            string[] tinte = { "default", "violet", "emerald", "cyan", "amber", "rose", "ruby", "blue" };
-            string[] avatarConsentiti =
-            {
-                "01_blue_orb.png", "02_green_leaf.png", "03_gold_star.png", "04_silver_gear.png",
-                "05_yellow_folder.png", "06_pink_music.png", "07_blue_shield.png", "08_cyan_crystal.png",
-                "09_camera.png", "10_purple_puzzle.png"
-            };
-
-            WinCenter.Features.AppSettings settings = settingsService.Load();
-
-            if (command.themeIndex.HasValue)
-                settings.ThemeIndex = Math.Max(0, Math.Min(5, command.themeIndex.Value));
-
-            if (!string.IsNullOrWhiteSpace(command.appearanceMode))
-                settings.AppearanceMode = command.appearanceMode == "day" ? "day" : "night";
-
-            if (!string.IsNullOrWhiteSpace(command.backgroundTint) && tinte.Contains(command.backgroundTint))
-                settings.BackgroundTint = command.backgroundTint;
-
-            if (command.profileName != null)
-            {
-                string nome = command.profileName.Trim();
-                if (nome.Length > 26) nome = nome.Substring(0, 26);
-                settings.ProfileName = nome;
-            }
-
-            if (!string.IsNullOrWhiteSpace(command.profileAvatar) && avatarConsentiti.Contains(command.profileAvatar))
-                settings.ProfileAvatar = command.profileAvatar;
-
-            settingsService.Save(settings);
-
-            string js = @"
-(function(cmd){
-    try {
-        if (cmd.themeIndex !== null && cmd.themeIndex !== undefined) localStorage.setItem('sfondoIndex', String(cmd.themeIndex));
-        if (cmd.appearanceMode) localStorage.setItem('wincenter_appearance_mode', cmd.appearanceMode === 'day' ? 'day' : 'night');
-        if (cmd.backgroundTint) localStorage.setItem('wincenter_background_tint', cmd.backgroundTint);
-        if (cmd.profileName !== null && cmd.profileName !== undefined) {
-            localStorage.setItem('wincenter_profile_name', String(cmd.profileName).substring(0, 26));
-            if (window.applicaNomeProfilo) window.applicaNomeProfilo(cmd.profileName);
-        }
-        if (cmd.profileAvatar) {
-            localStorage.setItem('wincenter_profile_avatar', cmd.profileAvatar);
-            if (window.applicaAvatarProfilo) window.applicaAvatarProfilo(cmd.profileAvatar);
-        }
-        if (window.applyWinCenterAppearance) window.applyWinCenterAppearance();
-        else {
-            if (window.applicaColoreSfondoStart) window.applicaColoreSfondoStart(localStorage.getItem('wincenter_background_tint'));
-            document.body.classList.toggle('wc-day', localStorage.getItem('wincenter_appearance_mode') === 'day');
-        }
-        if (window.aggiornaStatoMenuStart) window.aggiornaStatoMenuStart();
-    } catch(e) {}
-})(" + JsonSerializer.Serialize(command) + ");";
-
-            try
-            {
-                await EseguiScriptTelefono(js);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("Errore aggiornamento UI comando telefono", ex);
-            }
-        }
-
-        private Task EseguiScriptTelefono(string js)
-        {
-            TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-
-            Action run = () =>
-            {
-                try
-                {
-                    if (IsDisposed || webView21 == null || webView21.CoreWebView2 == null)
-                    {
-                        tcs.TrySetResult(true);
-                        return;
-                    }
-
-                    webView21.CoreWebView2.ExecuteScriptAsync(js).ContinueWith(task =>
-                    {
-                        if (task.IsFaulted && task.Exception != null)
-                            tcs.TrySetException(task.Exception);
-                        else
-                            tcs.TrySetResult(true);
-                    });
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            };
-
-            if (InvokeRequired) BeginInvoke(run);
-            else run();
-
-            return tcs.Task;
-        }
-
-        private async Task NotificaTelefonoConnesso(string deviceName, int batteryLevel, int signalLevel, bool tornaAllaHome)
-        {
-            var info = new
-            {
-                deviceName = string.IsNullOrWhiteSpace(deviceName) ? "Android" : deviceName.Trim(),
-                batteryLevel = batteryLevel,
-                signalLevel = signalLevel,
-                connectedAt = DateTimeOffset.Now.ToUnixTimeMilliseconds()
-            };
-
-            string json = JsonSerializer.Serialize(info);
-            string js = @"
-(function(info){
-    try {
-        localStorage.setItem('wincenter_phone_connected', JSON.stringify(info));
-        try { sessionStorage.setItem('wincenter_phone_connected_session', '1'); } catch(e) {}
-        if (window.aggiornaTelefonoConnesso) window.aggiornaTelefonoConnesso(info);
-        if (" + (tornaAllaHome ? "true" : "false") + @" && location.href.toLowerCase().indexOf('/rapidmenu/telefono.html') >= 0) {
-            window.location.replace('../../../Avvio/main.html');
-        }
-    } catch(e) {}
-})(" + json + ");";
-
-            await EseguiScriptTelefono(js);
-        }
-
-        private async Task NotificaTelefonoScollegato()
-        {
-            string js = @"
-(function(){
-    try {
-        localStorage.removeItem('wincenter_phone_connected');
-        sessionStorage.removeItem('wincenter_phone_connected_session');
-        var box = document.getElementById('phoneLinkStatus');
-        if (box) box.classList.remove('show');
-    } catch(e) {}
-})();";
-
-            await EseguiScriptTelefono(js);
-        }
-        private PhonePairingInfo CreaInfoAccoppiamentoTelefono()
-        {
-            string ip = OttieniIPv4Locale();
-            string url = "http://" + ip + ":" + PhoneBridgePort;
-            return new PhonePairingInfo
-            {
-                pcId = Environment.MachineName,
-                token = phonePairToken,
-                bridgeUrl = url,
-                payload = "WCPAIR|2|" + url + "|" + phonePairToken
-            };
-        }
-
-        private string OttieniIPv4Locale()
-        {
-            try
-            {
-                foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList)
-                {
-                    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip))
-                        return ip.ToString();
-                }
-            }
-            catch { }
-
-            return "127.0.0.1";
-        }
-
-        private string Query(Uri uri, string key)
-        {
-            string query = uri.Query;
-            if (query.StartsWith("?")) query = query.Substring(1);
-            foreach (string part in query.Split('&'))
-            {
-                if (string.IsNullOrEmpty(part)) continue;
-                string[] kv = part.Split(new[] { '=' }, 2);
-                string k = Uri.UnescapeDataString(kv[0]);
-                if (string.Equals(k, key, StringComparison.OrdinalIgnoreCase))
-                    return kv.Length > 1 ? Uri.UnescapeDataString(kv[1].Replace("+", " ")) : "";
-            }
-            return "";
-        }
-
-        private string GeneraTokenTelefono()
-        {
-            return Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
-        }
-
-        private class PhonePairingInfo
-        {
-            public string pcId { get; set; }
-            public string token { get; set; }
-            public string bridgeUrl { get; set; }
-            public string payload { get; set; }
-        }
-
-        private class PhoneCommand
-        {
-            public int? themeIndex { get; set; }
-            public string appearanceMode { get; set; }
-            public string backgroundTint { get; set; }
-            public string profileName { get; set; }
-            public string profileAvatar { get; set; }
-            public string deviceName { get; set; }
-            public int? batteryLevel { get; set; }
-            public int? signalLevel { get; set; }
         }
         async Task SmoothProgress(int start, int end, int delay = 50)
         {
