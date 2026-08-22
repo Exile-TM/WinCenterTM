@@ -44,8 +44,7 @@ WinCenter is developed by **Paolo Rossetto / Exile-TM** for the **Informatica Sp
 | **Software and utilities** | An organised catalogue of essential software, Microsoft tools, internet applications, multimedia software, development tools, document utilities and file-sharing programs. |
 | **Backup and post-installation** | Tools for preparing, saving and restoring useful configurations during maintenance or after reinstalling Windows. |
 | **WinCenter experience** | Integrated search, themes, customisable tiles, a quick panel, in-app updates and an interface available in more than 20 languages. |
-| **WinCenter multimedia** | A collection of lightweight games that can be launched instantly from within WinCenter. A built-in player for listening to local music without leaving the application.
-WinCenter HUB — coming soon — A new central space for discovering and accessing WinCenter services, features and connected experiences. |
+| **WinCenter multimedia** | A collection of lightweight games that can be launched instantly from within WinCenter. A built-in player for listening to local music without leaving the application. WinCenter HUB — coming soon — A new central space for discovering and accessing WinCenter services, features and connected experiences. |
 
 > Some operations change system settings or require administrator privileges. WinCenter explains the relevant steps and requests elevation only when it is needed.
 
